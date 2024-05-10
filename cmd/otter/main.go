@@ -1,37 +1,39 @@
 package main
 
 import (
-	"context"
-	"fmt"
-	"io"
 	"log/slog"
 	"os"
 
-	"github.com/tombuente/otter/internal/provider"
+	"github.com/tombuente/otter/internal/cli"
 )
 
 func main() {
-	ctx := context.Background()
+	// ctx := context.Background()
 
 	// TODO for testing
-	data, err := os.Open("./test.toml")
-	if err != nil {
-		fmt.Println(err)
-	}
+	// data, err := os.Open("./test.toml")
+	// if err != nil {
+	// 	fmt.Println(err)
+	// }
 
-	buffer, err := io.ReadAll(data)
-	if err != nil {
-		slog.Error("Unable to read from config file", "error", err)
-	}
+	// buffer, err := io.ReadAll(data)
+	// if err != nil {
+	// 	slog.Error("Unable to read from config file", "error", err)
+	// }
 
-	provider, err := provider.NewProvider(buffer)
-	if err != nil {
-		slog.Error("Unable to create new provider", "error", err)
-	}
-	defer provider.Close()
+	// provider, err := provider.NewProvider(buffer)
+	// if err != nil {
+	// 	slog.Error("Unable to create new provider", "error", err)
+	// }
+	// defer provider.Close()
 
 	// TODO for testing
-	if err = provider.Up(ctx); err != nil {
-		fmt.Println(err)
+	// if err = provider.Up(ctx); err != nil {
+	// 	fmt.Println(err)
+	// }
+
+	if err := cli.New().Run(os.Args); err != nil {
+		slog.Error(err.Error())
+		return
 	}
 }

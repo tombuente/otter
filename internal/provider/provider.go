@@ -5,6 +5,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"os"
 
 	"github.com/pelletier/go-toml/v2"
 	"github.com/tombuente/otter/internal/docker"
@@ -25,9 +27,10 @@ type Config struct {
 
 type ProviderKind string
 
-func NewProvider(config []byte) (Provider, error) {
+func New(config []byte) (Provider, error) {
 	decoder := toml.NewDecoder(bytes.NewReader(config))
-	genericConfig := Config{}
+
+	var genericConfig Config
 	err := decoder.Decode(&genericConfig)
 	if err != nil {
 		return nil, fmt.Errorf("unable to get provider name from file: %w", err)
@@ -52,4 +55,23 @@ func NewProvider(config []byte) (Provider, error) {
 	default:
 		return nil, errors.New("provider not supported")
 	}
+}
+
+func NewFromConfig(name string) (Provider, error) {
+	configFile, err := os.Open(fmt.Sprintf("%v.toml", name))
+	if err != nil {
+		return nil, fmt.Errorf("unable to open config file: %w", err)
+	}
+
+	data, err := io.ReadAll(configFile)
+	if err != nil {
+		return nil, fmt.Errorf("unable to read config file: %w", err)
+	}
+
+	provider, err := New(data)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create provider: %w", err)
+	}
+
+	return provider, nil
 }

@@ -141,7 +141,7 @@ func (provider ProviderImpl) createContainers(ctx context.Context) ([]container.
 			return []container.CreateResponse{}, fmt.Errorf("unable to create host config: %w", err)
 		}
 
-		slog.Info("Creating Docker container")
+		slog.Info("Creating Docker container", "name", c.Name)
 		createRes, err := provider.client.ContainerCreate(ctx, containerConfig, hostConfig, nil, nil, c.Name)
 		if err != nil {
 			return []container.CreateResponse{}, fmt.Errorf("unable to create Docker container: %w", err)
