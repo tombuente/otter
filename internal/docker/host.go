@@ -64,10 +64,15 @@ func hostPortBindings(ports []Port) nat.PortMap {
 func hostMounts(mounts []Mount) []mount.Mount {
 	var hostMounts []mount.Mount
 	for _, m := range mounts {
+		mountType := mount.Type(m.Type)
+		if mountType == "" {
+			mountType = mount.Type("bind")
+		}
+
 		newMount := mount.Mount{
 			Source: m.Host,
 			Target: m.Container,
-			Type:   mount.Type(m.Type),
+			Type:   mountType,
 		}
 
 		hostMounts = append(hostMounts, newMount)

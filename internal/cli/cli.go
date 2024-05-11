@@ -9,8 +9,10 @@ import (
 
 func New() *cli.App {
 	return &cli.App{
-		Name:  "otter",
-		Usage: "Manage containers",
+		Name:      "otter",
+		Usage:     "Manage containers",
+		Args:      true,
+		ArgsUsage: "[config]",
 		Commands: []*cli.Command{
 			{
 				Name:  "up",
@@ -23,7 +25,9 @@ func New() *cli.App {
 					}
 					defer provider.Close()
 
-					provider.Up(ctx.Context)
+					if err := provider.Up(ctx.Context); err != nil {
+						return fmt.Errorf("unable to run up action: %w", err)
+					}
 
 					return nil
 				},

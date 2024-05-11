@@ -57,8 +57,8 @@ func New(config []byte) (Provider, error) {
 	}
 }
 
-func NewFromConfig(name string) (Provider, error) {
-	configFile, err := os.Open(fmt.Sprintf("%v.toml", name))
+func NewFromConfig(filename string) (Provider, error) {
+	configFile, err := os.Open(fmt.Sprintf("%v.toml", filename))
 	if err != nil {
 		return nil, fmt.Errorf("unable to open config file: %w", err)
 	}
