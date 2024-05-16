@@ -6,15 +6,20 @@ import (
 	"io"
 	"log/slog"
 
+	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/volume"
 	"github.com/docker/docker/client"
+	"github.com/docker/docker/errdefs"
 )
 
 type ProviderImpl struct {
 	client *client.Client
 	config Config
+
+	containers map[string]container.CreateResponse
+	networks   map[string]types.NetworkCreateResponse
 }
 
 type KeyValue struct {
@@ -23,22 +28,24 @@ type KeyValue struct {
 }
 
 type Config struct {
-	Containers []ContainerConfig `toml:"service"`
-	Volumes    []VolumeConfig    `toml:"volume"`
-}
-
-type VolumeConfig struct {
-	Name   string
-	Labels []KeyValue
+	Containers map[string]ContainerConfig `toml:"service"`
+	Networks   map[string]NetworkConfig   `toml:"network"`
+	Volumes    map[string]VolumeConfig    `toml:"volume"`
 }
 
 type ContainerConfig struct {
-	Image   string
-	Name    string
-	Restart string
-	Ports   []Port
-	EnvVars []KeyValue
-	Mounts  []Mount
+	Image    string
+	Restart  string
+	Ports    []Port
+	Networks []string
+	EnvVars  []KeyValue
+	Mounts   []Mount
+}
+
+type NetworkConfig struct{}
+
+type VolumeConfig struct {
+	Labels []KeyValue
 }
 
 type Port struct {
@@ -62,6 +69,9 @@ func NewProvider(config Config) (ProviderImpl, error) {
 	provider := ProviderImpl{
 		client: client,
 		config: config,
+
+		containers: make(map[string]container.CreateResponse),
+		networks:   make(map[string]types.NetworkCreateResponse),
 	}
 
 	return provider, nil
@@ -73,19 +83,24 @@ func (provider ProviderImpl) Up(ctx context.Context) error {
 		return fmt.Errorf("unable to pull Docker images: %w", err)
 	}
 
+	slog.Info("Creating Docker networks")
+	if err := provider.createNetworks(ctx); err != nil {
+		return fmt.Errorf("unable to create Docker networks: %w", err)
+	}
+
 	slog.Info("Creating Docker volumes")
 	if err := provider.createVolumes(ctx); err != nil {
 		return fmt.Errorf("unable to create Docker volumes: %w", err)
 	}
 
 	slog.Info("Creating Docker containers")
-	responses, err := provider.createContainers(ctx)
+	err := provider.createContainers(ctx)
 	if err != nil {
 		return fmt.Errorf("unable to create Docker containers: %w", err)
 	}
 
 	slog.Info("Starting Docker containers")
-	if err := provider.startContainers(ctx, responses); err != nil {
+	if err := provider.startContainers(ctx); err != nil {
 		return fmt.Errorf("unable to start Docker containers: %w", err)
 	}
 
@@ -97,8 +112,8 @@ func (provider ProviderImpl) Close() {
 }
 
 func (provider ProviderImpl) pullImages(ctx context.Context) error {
-	for _, c := range provider.config.Containers {
-		reader, err := provider.client.ImagePull(ctx, c.Image, image.PullOptions{})
+	for _, config := range provider.config.Containers {
+		reader, err := provider.client.ImagePull(ctx, config.Image, image.PullOptions{})
 		if err != nil {
 			return fmt.Errorf("unable to pull Docker image: %w", err)
 		}
@@ -109,18 +124,38 @@ func (provider ProviderImpl) pullImages(ctx context.Context) error {
 	return nil
 }
 
+func (provider ProviderImpl) createNetworks(ctx context.Context) error {
+	for name := range provider.config.Networks {
+		options := types.NetworkCreate{}
+
+		slog.Info("Creating Docker network", "name", name)
+		networkRes, err := provider.client.NetworkCreate(ctx, name, options)
+		switch {
+		case errdefs.IsConflict(err):
+			slog.Warn("Docker network already exists", "name", name)
+		case err != nil:
+			return fmt.Errorf("unable to create Docker network: %w", err)
+		}
+
+		provider.networks[name] = networkRes
+	}
+
+	return nil
+}
+
 func (provider ProviderImpl) createVolumes(ctx context.Context) error {
-	for _, v := range provider.config.Volumes {
+	for name, config := range provider.config.Volumes {
 		labels := make(map[string]string)
-		for _, label := range v.Labels {
+		for _, label := range config.Labels {
 			labels[label.Name] = label.Value
 		}
 
 		options := volume.CreateOptions{
-			Name:   v.Name,
+			Name:   name,
 			Labels: labels,
 		}
 
+		slog.Info("Creating Docker volume", "name", name)
 		_, err := provider.client.VolumeCreate(ctx, options)
 		if err != nil {
 			return fmt.Errorf("unable to create Docker volume: %w", err)
@@ -130,32 +165,35 @@ func (provider ProviderImpl) createVolumes(ctx context.Context) error {
 	return nil
 }
 
-func (provider ProviderImpl) createContainers(ctx context.Context) ([]container.CreateResponse, error) {
-	var responses []container.CreateResponse
+func (provider ProviderImpl) createContainers(ctx context.Context) error {
+	for name, config := range provider.config.Containers {
+		containerConfig := newContainerConfig(config)
 
-	for _, c := range provider.config.Containers {
-		containerConfig := newContainerConfig(c)
-
-		hostConfig, err := newHostConfig(c)
+		hostConfig, err := newHostConfig(config)
 		if err != nil {
-			return []container.CreateResponse{}, fmt.Errorf("unable to create host config: %w", err)
+			return fmt.Errorf("unable to create host config: %w", err)
 		}
 
-		slog.Info("Creating Docker container", "name", c.Name)
-		createRes, err := provider.client.ContainerCreate(ctx, containerConfig, hostConfig, nil, nil, c.Name)
+		networkConfig, err := newNetworkConfig(config, provider.networks)
 		if err != nil {
-			return []container.CreateResponse{}, fmt.Errorf("unable to create Docker container %v: %w", c.Name, err)
+			return fmt.Errorf("unable to create network config: %w", err)
 		}
 
-		responses = append(responses, createRes)
+		slog.Info("Creating Docker container", "name", name)
+		createRes, err := provider.client.ContainerCreate(ctx, &containerConfig, &hostConfig, &networkConfig, nil, name)
+		if err != nil {
+			return fmt.Errorf("unable to create Docker container %v: %w", name, err)
+		}
+
+		provider.containers[name] = createRes
 	}
 
-	return responses, nil
+	return nil
 }
 
-func (provider ProviderImpl) startContainers(ctx context.Context, responses []container.CreateResponse) error {
-	for _, res := range responses {
-		if err := provider.client.ContainerStart(ctx, res.ID, container.StartOptions{}); err != nil {
+func (provider ProviderImpl) startContainers(ctx context.Context) error {
+	for _, createRes := range provider.containers {
+		if err := provider.client.ContainerStart(ctx, createRes.ID, container.StartOptions{}); err != nil {
 			return err
 		}
 	}

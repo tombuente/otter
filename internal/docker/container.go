@@ -7,11 +7,11 @@ import (
 	"github.com/docker/go-connections/nat"
 )
 
-func newContainerConfig(config ContainerConfig) *container.Config {
+func newContainerConfig(config ContainerConfig) container.Config {
 	exposedPorts := containerExposedPorts(config.Ports)
 	env := containerEnv(config.EnvVars)
 
-	return &container.Config{
+	return container.Config{
 		Image:        config.Image,
 		ExposedPorts: exposedPorts,
 		Env:          env,

@@ -8,17 +8,17 @@ import (
 	"github.com/docker/go-connections/nat"
 )
 
-func newHostConfig(config ContainerConfig) (*container.HostConfig, error) {
+func newHostConfig(config ContainerConfig) (container.HostConfig, error) {
 	portBindings := hostPortBindings(config.Ports)
 
 	restartPolicy, err := hostRestartPolicy(config.Restart)
 	if err != nil {
-		return &container.HostConfig{}, err
+		return container.HostConfig{}, err
 	}
 
 	mounts := hostMounts(config.Mounts)
 
-	return &container.HostConfig{
+	return container.HostConfig{
 		PortBindings:  portBindings,
 		RestartPolicy: restartPolicy,
 		Mounts:        mounts,
@@ -63,15 +63,15 @@ func hostPortBindings(ports []Port) nat.PortMap {
 
 func hostMounts(mounts []Mount) []mount.Mount {
 	var hostMounts []mount.Mount
-	for _, m := range mounts {
-		mountType := mount.Type(m.Type)
+	for _, mountConfig := range mounts {
+		mountType := mount.Type(mountConfig.Type)
 		if mountType == "" {
 			mountType = mount.Type("bind")
 		}
 
 		newMount := mount.Mount{
-			Source: m.Host,
-			Target: m.Container,
+			Source: mountConfig.Host,
+			Target: mountConfig.Container,
 			Type:   mountType,
 		}
 
